@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>CodeSentry</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: a review bench. Editor on the left, the reviewer's verdicts on the right, the annotated code underneath, then the mistake statistics. */
+:root {
+  --bg: #f4f5f7;
+  --panel: #ffffff;
+  --ink: #161a22;
+  --muted: #5d6573;
+  --line: #dcdfe5;
+  --code-bg: #fbfbfc;
+  --accent: #4b3fd1;
+  --syntax: #d23b3b;
+  --syntax-soft: #fbe3e3;
+  --logic: #c77700;
+  --logic-soft: #fdf0d9;
+  --warning: #2f6fd0;
+  --warning-soft: #e2ecfb;
+  --ok: #1d8a52;
+  --f-display: "Space Grotesk", "Avenir Next", Arial, sans-serif;
+  --f-body: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --f-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #0e1015; --panel: #161a22; --ink: #e6e9ef; --muted: #98a0ae; --line: #2a303c; --code-bg: #11141a; --accent: #9b92ff;
+  --syntax: #ff7272; --syntax-soft: #3c1a1d; --logic: #ffb547; --logic-soft: #3a2a10; --warning: #73a8ff; --warning-soft: #172741; --ok: #4fd18d; color-scheme: dark; } }
+:root[data-theme="dark"] {
+  --bg: #0e1015; --panel: #161a22; --ink: #e6e9ef; --muted: #98a0ae; --line: #2a303c; --code-bg: #11141a; --accent: #9b92ff;
+  --syntax: #ff7272; --syntax-soft: #3c1a1d; --logic: #ffb547; --logic-soft: #3a2a10; --warning: #73a8ff; --warning-soft: #172741; --ok: #4fd18d; color-scheme: dark; }
+
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--f-body); font-size: 15px; line-height: 1.55; }
+.wrap { max-width: 1180px; margin: 0 auto; padding-block: 32px 56px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  display: flex; flex-direction: column; gap: 20px; }
+h1, h2 { font-family: var(--f-display); margin: 0; text-wrap: balance; }
+h1 { font-size: clamp(34px, 6vw, 54px); font-weight: 700; letter-spacing: -0.02em; line-height: 1; }
+h2 { font-size: 19px; font-weight: 700; }
+p { margin: 0; }
+.eyebrow { font-family: var(--f-mono); font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
+header { display: flex; flex-direction: column; gap: 10px; }
+header .lede { color: var(--muted); max-width: 66ch; font-size: 16px; }
+
+.bench { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.bar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; justify-content: space-between; }
+.bar .grp { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+select, button { font: inherit; font-size: 14px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); padding: 7px 12px; }
+button { cursor: pointer; font-weight: 600; }
+button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+button.chip { font-size: 13px; font-weight: 500; padding: 5px 10px; border-radius: 999px; background: var(--bg); }
+button:disabled { opacity: 0.5; cursor: wait; }
+button:focus-visible, select:focus-visible, textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.toggle { display: inline-flex; gap: 6px; align-items: center; font-weight: 600; font-size: 14px; cursor: pointer; }
+.toggle input { accent-color: var(--accent); width: 16px; height: 16px; }
+
+.editor { display: grid; grid-template-columns: auto minmax(0, 1fr); border: 1px solid var(--line); border-radius: 8px; background: var(--code-bg); overflow: hidden; height: 380px; }
+.gutter { font-family: var(--f-mono); font-size: 13px; line-height: 20px; color: var(--muted); text-align: right; padding: 10px 8px 10px 12px; user-select: none; overflow: hidden; border-right: 1px solid var(--line); white-space: pre; }
+.gutter .bad-syntax { color: var(--syntax); font-weight: 600; } .gutter .bad-logic { color: var(--logic); font-weight: 600; } .gutter .bad-warning { color: var(--warning); font-weight: 600; }
+textarea#code { font-family: var(--f-mono); font-size: 13px; line-height: 20px; border: 0; resize: none; padding: 10px 12px; background: transparent; color: var(--ink); white-space: pre; overflow: auto; tab-size: 4; height: 100%; width: 100%; }
+textarea#code:focus-visible { outline: none; }
+.status { font-size: 13px; color: var(--muted); display: flex; gap: 8px; align-items: center; }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--logic); display: inline-block; }
+.dot.ready { background: var(--ok); }
+
+.summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.sum { border-radius: 8px; padding: 10px; display: flex; flex-direction: column; gap: 2px; border-top: 3px solid; background: var(--bg); }
+.sum .n { font-family: var(--f-display); font-size: 26px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; }
+.sum .l { font-size: 12px; color: var(--muted); font-weight: 600; }
+.sum.syntax { border-color: var(--syntax); } .sum.syntax .n { color: var(--syntax); }
+.sum.logic { border-color: var(--logic); } .sum.logic .n { color: var(--logic); }
+.sum.warning { border-color: var(--warning); } .sum.warning .n { color: var(--warning); }
+.issues { display: flex; flex-direction: column; gap: 8px; max-height: 420px; overflow: auto; }
+.issue { border-left: 4px solid; border-radius: 6px; padding: 9px 11px; display: flex; flex-direction: column; gap: 3px; cursor: pointer; text-align: left; font-weight: 400; border-top: 0; border-right: 0; border-bottom: 0; }
+.issue.syntax { border-left-color: var(--syntax); background: var(--syntax-soft); }
+.issue.logic { border-left-color: var(--logic); background: var(--logic-soft); }
+.issue.warning { border-left-color: var(--warning); background: var(--warning-soft); }
+.issue .top { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+.issue .ln { font-family: var(--f-mono); font-size: 12px; font-weight: 600; }
+.issue .kind { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; }
+.issue.syntax .kind { color: var(--syntax); } .issue.logic .kind { color: var(--logic); } .issue.warning .kind { color: var(--warning); }
+.issue .msg { font-size: 14px; color: var(--ink); }
+.issue .tip { font-size: 13px; color: var(--muted); }
+.clean { color: var(--ok); font-weight: 600; padding: 10px 0; }
+
+.annot { font-family: var(--f-mono); font-size: 13px; line-height: 20px; background: var(--code-bg); border: 1px solid var(--line); border-radius: 8px; overflow-x: auto; padding: 8px 0; }
+.annot .row { display: grid; grid-template-columns: 44px minmax(max-content, 1fr); white-space: pre; padding-right: 12px; }
+.annot .num { color: var(--muted); text-align: right; padding-right: 12px; user-select: none; }
+.annot .row.syntax { background: var(--syntax-soft); box-shadow: inset 3px 0 var(--syntax); }
+.annot .row.logic { background: var(--logic-soft); box-shadow: inset 3px 0 var(--logic); }
+.annot .row.warning { background: var(--warning-soft); box-shadow: inset 3px 0 var(--warning); }
+.annot .note { grid-column: 2; font-family: var(--f-body); font-size: 12.5px; padding: 0 0 4px; white-space: normal; }
+.annot .row.syntax .note { color: var(--syntax); } .annot .row.logic .note { color: var(--logic); } .annot .row.warning .note { color: var(--warning); }
+.annot .row.flash { animation: flash 1.2s; }
+@keyframes flash { 0%, 40% { outline: 2px solid var(--accent); } 100% { outline: 2px solid transparent; } }
+
+.lower { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 16px; }
+.bars { display: flex; flex-direction: column; gap: 6px; }
+.barrow { display: grid; grid-template-columns: minmax(0, 190px) minmax(0, 1fr) 64px; gap: 10px; align-items: center; font-size: 13px; }
+.barrow .track { height: 14px; background: var(--bg); border-radius: 4px; overflow: hidden; }
+.barrow .fill { height: 100%; border-radius: 4px; }
+.barrow .p { font-family: var(--f-mono); font-size: 12px; text-align: right; font-variant-numeric: tabular-nums; }
+.note-sm { font-size: 13px; color: var(--muted); }
+.legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 13px; color: var(--muted); }
+.sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
+ul.rules { margin: 0; padding-left: 1.1em; font-size: 14px; color: var(--muted); columns: 2; column-gap: 24px; }
+ul.rules li { break-inside: avoid; margin-bottom: 3px; }
+code { font-family: var(--f-mono); font-size: 0.92em; }
+footer { font-size: 13px; color: var(--muted); border-top: 1px solid var(--line); padding-top: 14px; }
+
+@media (max-width: 900px) {
+  .bench, .lower { grid-template-columns: minmax(0, 1fr); }
+  ul.rules { columns: 1; }
+  .barrow { grid-template-columns: minmax(0, 130px) minmax(0, 1fr) 56px; }
+}
+@media (prefers-reduced-motion: reduce) { .annot .row.flash { animation: none; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <span class="eyebrow">Automated code review · Python &amp; Java</span>
+    <h1>CodeSentry</h1>
+    <p class="lede">Paste Python or Java code and CodeSentry flags syntax errors and the loop and logic mistakes people make most, on the exact line, each with its own alert sound. The reviewer is a real Python program running in your browser.</p>
+  </header>
+
+  <section class="bench">
+    <div class="panel">
+      <div class="bar">
+        <div class="grp">
+          <label for="lang" class="note-sm">Language</label>
+          <select id="lang"><option value="auto">Auto-detect</option><option value="python">Python</option><option value="java">Java</option></select>
+          <label class="toggle" for="sound"><input type="checkbox" id="sound" checked> Sound alerts</label>
+        </div>
+        <button id="run" class="primary" disabled>Review code</button>
+      </div>
+      <div class="editor">
+        <div class="gutter" id="gutter" aria-hidden="true">1</div>
+        <textarea id="code" spellcheck="false" aria-label="Code to review" wrap="off"></textarea>
+      </div>
+      <div class="bar">
+        <div class="grp"><span class="note-sm">Examples:</span>
+          <button class="chip" data-ex="py">Buggy Python</button>
+          <button class="chip" data-ex="java">Buggy Java</button>
+          <button class="chip" data-ex="pysyntax">Python syntax error</button>
+          <button class="chip" data-ex="clean">Clean code</button>
+        </div>
+        <span class="status"><span class="dot" id="dot"></span><span id="status">Loading Python in your browser…</span></span>
+      </div>
+    </div>
+
+    <div class="panel" aria-live="polite">
+      <div class="bar"><h2>Review</h2><span class="note-sm" id="langOut"></span></div>
+      <div class="summary">
+        <div class="sum syntax"><span class="n" id="nSyntax">0</span><span class="l">Syntax errors</span></div>
+        <div class="sum logic"><span class="n" id="nLogic">0</span><span class="l">Logic errors</span></div>
+        <div class="sum warning"><span class="n" id="nWarning">0</span><span class="l">Warnings</span></div>
+      </div>
+      <div class="issues" id="issues"><p class="note-sm">Results appear here. Click an issue to jump to its line.</p></div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>Annotated code</h2>
+    <div class="annot" id="annot"></div>
+  </section>
+
+  <section class="lower">
+    <div class="panel">
+      <div class="bar"><h2>Which mistakes are most likely?</h2><button id="resetStats" class="chip">Reset</button></div>
+      <p class="note-sm" id="statsNote">Every review adds to these counts. Each bar is P(mistake type) = times seen ÷ all issues found, the same way I charted the errors developers caught by hand at Metabo.</p>
+      <div class="legend"><span><span class="sw" style="background:var(--syntax)"></span>Syntax</span><span><span class="sw" style="background:var(--logic)"></span>Logic</span><span><span class="sw" style="background:var(--warning)"></span>Warning</span></div>
+      <div class="bars" id="bars"></div>
+    </div>
+    <div class="panel">
+      <h2>What it checks</h2>
+      <ul class="rules">
+        <li>Python syntax &amp; indentation errors</li>
+        <li>Java missing semicolons</li>
+        <li>Unclosed brackets and strings</li>
+        <li>Infinite <code>while True</code> loops</li>
+        <li>Loop counters that never change</li>
+        <li>Off-by-one loops (<code>&lt;= length</code>, <code>len+1</code>)</li>
+        <li>Loops counting the wrong way</li>
+        <li>Loops that only run once</li>
+        <li>Lists changed while looping</li>
+        <li><code>=</code> instead of <code>==</code> in an if</li>
+        <li>Stray <code>;</code> after if/for/while</li>
+        <li>Strings compared with <code>==</code> in Java</li>
+        <li><code>is</code> vs <code>==</code>, <code>== None</code></li>
+        <li>Mutable default arguments</li>
+        <li>Bare <code>except</code>, unused variables</li>
+      </ul>
+      <p class="note-sm"><b>Sounds:</b> low buzz for syntax errors, double beep for logic errors, soft ping for warnings.</p>
+      <p class="note-sm"><b>How:</b> Python code is parsed into a syntax tree with Python's <code>ast</code> module and each rule walks the tree. Java is checked with a bracket stack and line patterns. The same <code>review.py</code> also runs from the command line.</p>
+    </div>
+  </section>
+
+  <footer>Built by Falak Anand in Python and JavaScript, with AI-assisted development. A personal rebuild of an automated code-review tool I made during my software engineering internship at Metabo. This is new code, not the company's. Runs entirely in your browser with Pyodide; your code is never uploaded.</footer>
+</div>
+
+<script src="https://cdn.jsdelivr.net/pyodide/v0.26.4/full/pyodide.js"></script>
+<script>
+(function () {
+  const $ = id => document.getElementById(id);
+  const code = $("code"), gutter = $("gutter");
+  let reviewFn = null, lastIssues = [];
+  const stats = {};
+  const NAMES = {
+    "syntax": "Syntax error", "indentation": "Indentation error", "missing-semicolon": "Missing semicolon",
+    "bracket-mismatch": "Bracket mismatch", "bracket-unclosed": "Unclosed bracket", "unclosed-string": "Unclosed string",
+    "infinite-loop": "Infinite loop", "loop-var-not-updated": "Loop counter never updated", "off-by-one": "Off-by-one loop",
+    "loop-runs-once": "Loop runs only once", "modify-while-iterating": "List changed while looping",
+    "wrong-direction": "Loop counts the wrong way", "empty-body": "Stray ; after condition",
+    "assign-in-if": "= instead of == in if", "string-equals": "Strings compared with ==", "is-literal": "'is' instead of ==",
+    "mutable-default": "Mutable default argument", "none-comparison": "== None", "bare-except": "Bare except",
+    "unused-variable": "Unused variable"
+  };
+
+  const EX = {
+    py: `def average(scores, extra=[]):
+    total = 0
+    for i in range(len(scores) + 1):
+        total += scores[i]
+    return total / len(scores)
+
+def countdown(n):
+    while n > 0:
+        print(n)
+
+def remove_blanks(items):
+    for x in items:
+        if x == None:
+            items.remove(x)
+    return items
+
+def find_first_even(nums):
+    for n in nums:
+        return n
+
+def wait_for_user():
+    while True:
+        print("waiting...")
+`,
+    java: `public class Scores {
+    public static void main(String[] args) {
+        int[] nums = {90, 75, 88};
+        int total = 0
+        for (int i = 0; i <= nums.length; i++) {
+            total += nums[i];
+        }
+        String grade = "A";
+        if (grade == "A") {
+            System.out.println("Top grade");
+        }
+        int k = 0;
+        while (k < 3) {
+            System.out.println(nums[k]);
+        }
+        for (int j = 10; j > 0; j++) {
+            System.out.println(j);
+        }
+        if (total > 200); {
+            System.out.println("High total");
+        }
+    }
+}
+`,
+    pysyntax: `def greet(name)
+    print("Hello", name)
+
+greet("Falak")
+`,
+    clean: `def average(scores):
+    if not scores:
+        return 0
+    total = 0
+    for s in scores:
+        total += s
+    return total / len(scores)
+
+def countdown(n):
+    while n > 0:
+        print(n)
+        n -= 1
+
+def first_even(nums):
+    for n in nums:
+        if n % 2 == 0:
+            return n
+    return None
+`
+  };
+
+  // ---------- editor gutter ----------
+  function renderGutter() {
+    const n = code.value.split("\n").length, bad = {};
+    lastIssues.forEach(i => { if (!bad[i.line] || rank(i.kind) < rank(bad[i.line])) bad[i.line] = i.kind; });
+    let html = "";
+    for (let i = 1; i <= n; i++) html += (bad[i] ? `<span class="bad-${bad[i]}">${i}</span>` : i) + "\n";
+    gutter.innerHTML = html;
+    gutter.scrollTop = code.scrollTop;
+  }
+  const rank = k => ({ syntax: 0, logic: 1, warning: 2 }[k]);
+  code.addEventListener("input", () => { lastIssues = []; renderGutter(); });
+  code.addEventListener("scroll", () => { gutter.scrollTop = code.scrollTop; });
+  code.addEventListener("keydown", e => {
+    if (e.key === "Tab") { e.preventDefault(); const s = code.selectionStart; code.setRangeText("    ", s, code.selectionEnd, "end"); renderGutter(); }
+    if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); run(true); }
+  });
+
+  // ---------- sounds ----------
+  let ac = null;
+  function tone(freq, start, dur, type, vol) {
+    const o = ac.createOscillator(), g = ac.createGain();
+    o.type = type; o.frequency.value = freq;
+    g.gain.setValueAtTime(0, start); g.gain.linearRampToValueAtTime(vol, start + 0.01); g.gain.exponentialRampToValueAtTime(0.0001, start + dur);
+    o.connect(g).connect(ac.destination); o.start(start); o.stop(start + dur + 0.02);
+  }
+  function playAlerts(issues) {
+    if (!$("sound").checked || !issues.length) return;
+    try { ac = ac || new (window.AudioContext || window.webkitAudioContext)(); ac.resume(); } catch (_) { return; }
+    let t = ac.currentTime + 0.05;
+    issues.slice(0, 6).forEach(i => {
+      if (i.kind === "syntax") tone(150, t, 0.32, "sawtooth", 0.12);
+      else if (i.kind === "logic") { tone(660, t, 0.12, "square", 0.06); tone(880, t + 0.15, 0.12, "square", 0.06); }
+      else tone(1250, t, 0.3, "sine", 0.1);
+      t += 0.42;
+    });
+  }
+
+  // ---------- review ----------
+  function esc(s) { return s.replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
+  function run(withSound) {
+    if (!reviewFn) return;
+    let res;
+    try { res = JSON.parse(reviewFn(code.value, $("lang").value)); }
+    catch (e) { $("issues").innerHTML = `<p class="note-sm">The reviewer hit an error: ${esc(String(e)).slice(0, 200)}</p>`; return; }
+    lastIssues = res.issues;
+    $("langOut").textContent = "Reviewed as " + (res.language === "java" ? "Java" : "Python");
+    const count = k => res.issues.filter(i => i.kind === k).length;
+    $("nSyntax").textContent = count("syntax"); $("nLogic").textContent = count("logic"); $("nWarning").textContent = count("warning");
+    $("issues").innerHTML = res.issues.length ? res.issues.map((i, idx) =>
+      `<button class="issue ${i.kind}" data-line="${i.line}"><span class="top"><span class="ln">Line ${i.line}</span><span class="kind">${i.kind}</span><b>${esc(NAMES[i.rule] || i.rule)}</b></span><span class="msg">${esc(i.message)}</span>${i.tip ? `<span class="tip">Fix: ${esc(i.tip)}</span>` : ""}</button>`).join("")
+      : `<p class="clean">✓ No issues found. Nice clean code.</p>`;
+    document.querySelectorAll(".issue").forEach(b => b.addEventListener("click", () => jump(+b.dataset.line)));
+    renderAnnot(res.issues); renderGutter();
+    res.issues.forEach(i => { stats[i.rule] = stats[i.rule] || { n: 0, kind: i.kind }; stats[i.rule].n++; });
+    renderStats();
+    if (withSound) playAlerts(res.issues);
+  }
+  function renderAnnot(issues) {
+    const by = {};
+    issues.forEach(i => (by[i.line] = by[i.line] || []).push(i));
+    $("annot").innerHTML = code.value.split("\n").map((l, idx) => {
+      const n = idx + 1, list = by[n];
+      const kind = list ? list.slice().sort((a, b) => rank(a.kind) - rank(b.kind))[0].kind : "";
+      const notes = list ? list.map(i => `<div class="note">↑ ${esc(i.message)}</div>`).join("") : "";
+      return `<div class="row ${kind}" id="L${n}"><span class="num">${n}</span><span>${esc(l) || " "}</span>${notes ? `<span class="num"></span>${notes.replace(/^<div class="note">/, '<div class="note">')}` : ""}</div>`;
+    }).join("");
+  }
+  function jump(n) {
+    const row = $("L" + n); if (!row) return;
+    row.scrollIntoView({ behavior: "smooth", block: "center" });
+    row.classList.remove("flash"); void row.offsetWidth; row.classList.add("flash");
+    const lines = code.value.split("\n"); let pos = 0; for (let i = 0; i < n - 1; i++) pos += lines[i].length + 1;
+    code.focus({ preventScroll: true }); code.setSelectionRange(pos, pos + (lines[n - 1] || "").length);
+    code.scrollTop = Math.max(0, (n - 5) * 20);
+  }
+  function renderStats() {
+    const rows = Object.entries(stats).sort((a, b) => b[1].n - a[1].n);
+    const total = rows.reduce((s, [, v]) => s + v.n, 0);
+    if (!total) { $("bars").innerHTML = `<p class="note-sm">No issues counted yet.</p>`; return; }
+    $("bars").innerHTML = rows.slice(0, 12).map(([rule, v]) => {
+      const p = v.n / total;
+      return `<div class="barrow"><span>${esc(NAMES[rule] || rule)}</span><div class="track"><div class="fill" style="width:${(p / (rows[0][1].n / total)) * 100}%;background:var(--${v.kind})"></div></div><span class="p">${p.toFixed(2)}</span></div>`;
+    }).join("") + `<p class="note-sm">${total} issues counted across your reviews.</p>`;
+  }
+  $("resetStats").addEventListener("click", () => { for (const k in stats) delete stats[k]; renderStats(); });
+
+  document.querySelectorAll("[data-ex]").forEach(b => b.addEventListener("click", () => {
+    code.value = EX[b.dataset.ex]; $("lang").value = "auto"; lastIssues = []; renderGutter(); run(true);
+  }));
+  $("run").addEventListener("click", () => run(true));
+
+  // ---------- boot Python ----------
+  code.value = EX.py; renderGutter(); renderAnnot([]); renderStats();
+  async function boot() {
+    try {
+      const py = await loadPyodide();
+      const src = await (await fetch("review.py")).text();
+      py.runPython(src);
+      reviewFn = py.globals.get("review_json");
+      $("status").textContent = "Python " + (py.version || "") + " ready · Ctrl+Enter to review";
+      $("dot").classList.add("ready");
+      $("run").disabled = false;
+      run(false);
+    } catch (e) {
+      $("status").textContent = "Couldn't load Python in this browser. Try refreshing, or run review.py locally.";
+    }
+  }
+  if (typeof loadPyodide === "function") boot();
+  else $("status").textContent = "Couldn't load Python in this browser. Try refreshing, or run review.py locally.";
+})();
+</script>
+</body>
+</html>
